@@ -1,6 +1,8 @@
 import os
-from typing import List, Optional
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+import json
+import asyncio
+from typing import List, Optional, Dict, Set
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -187,9 +189,16 @@ def list_chat(category: Optional[str] = None, limit: Optional[int] = 50):
     return {"items": items}
 
 @app.post("/chat", status_code=201)
-def create_chat(payload: ChatCreate):
+async def create_chat(payload: ChatCreate):
     try:
         inserted_id = create_document("chatmessage", payload)
+        # Broadcast realtime update to chat channel
+        data = payload.model_dump()
+        data["_id"] = inserted_id
+        await hub.broadcast_chat(data.get("category") or "General", {
+            "type": "message",
+            "item": data,
+        })
         return {"id": inserted_id, "message": "Message posted"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -269,9 +278,11 @@ class RoomCreate(Room):
     pass
 
 @app.post("/rooms", status_code=201)
-def create_room(payload: RoomCreate):
+async def create_room(payload: RoomCreate):
     try:
         inserted_id = create_document("room", payload)
+        # Notify room listings channel (optional global broadcast)
+        await hub.broadcast_global({"type": "room_created", "id": inserted_id})
         return {"id": inserted_id, "message": "Room created"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -297,7 +308,7 @@ class RoomMessageCreate(RoomMessage):
     pass
 
 @app.post("/rooms/{room_id}/messages", status_code=201)
-def post_room_message(room_id: str, payload: RoomMessageCreate):
+async def post_room_message(room_id: str, payload: RoomMessageCreate):
     try:
         # Ensure room exists
         room = get_document_by_id("room", room_id)
@@ -307,6 +318,9 @@ def post_room_message(room_id: str, payload: RoomMessageCreate):
         data = payload.model_dump()
         data["room_id"] = room_id
         inserted_id = create_document("roommessage", data)
+        data["_id"] = inserted_id
+        # Broadcast to room subscribers
+        await hub.broadcast_room(room_id, {"type": "message", "item": data})
         return {"id": inserted_id, "message": "Message posted"}
     except HTTPException:
         raise
@@ -326,11 +340,13 @@ def list_room_messages(room_id: str, limit: Optional[int] = 100):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/rooms/{room_id}/pin", status_code=200)
-def pin_media(room_id: str, url: str = Form(...)):
+async def pin_media(room_id: str, url: str = Form(...)):
     try:
         updated = update_document_push("room", room_id, "pinned_media", url)
         if not updated:
             raise HTTPException(status_code=404, detail="Room not found or not updated")
+        # Broadcast pin to room subscribers
+        await hub.broadcast_room(room_id, {"type": "pin", "url": url})
         return {"message": "Media pinned"}
     except HTTPException:
         raise
@@ -355,6 +371,133 @@ async def upload_file(file: UploadFile = File(...)):
         return {"url": f"/static/uploads/{file.filename}"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# ---------------------- Realtime Hub (WebSockets) ----------------------
+class RealtimeHub:
+    def __init__(self) -> None:
+        self.chat_channels: Dict[str, Set[WebSocket]] = {}
+        self.room_channels: Dict[str, Set[WebSocket]] = {}
+        self.global_channels: Set[WebSocket] = set()
+        self.lock = asyncio.Lock()
+
+    async def connect_chat(self, category: str, websocket: WebSocket):
+        await websocket.accept()
+        async with self.lock:
+            self.chat_channels.setdefault(category, set()).add(websocket)
+        await self.broadcast_chat(category, {"type": "presence", "event": "join", "count": self.count_chat(category)})
+
+    async def disconnect_chat(self, category: str, websocket: WebSocket):
+        async with self.lock:
+            conns = self.chat_channels.get(category)
+            if conns and websocket in conns:
+                conns.remove(websocket)
+                if not conns:
+                    self.chat_channels.pop(category, None)
+        await self.broadcast_chat(category, {"type": "presence", "event": "leave", "count": self.count_chat(category)})
+
+    async def broadcast_chat(self, category: str, message: dict):
+        conns = list(self.chat_channels.get(category, set()))
+        dead = []
+        for ws in conns:
+            try:
+                await ws.send_text(json.dumps(message))
+            except Exception:
+                dead.append(ws)
+        if dead:
+            async with self.lock:
+                for ws in dead:
+                    self.chat_channels.get(category, set()).discard(ws)
+
+    def count_chat(self, category: str) -> int:
+        return len(self.chat_channels.get(category, set()))
+
+    async def connect_room(self, room_id: str, websocket: WebSocket):
+        await websocket.accept()
+        async with self.lock:
+            self.room_channels.setdefault(room_id, set()).add(websocket)
+        await self.broadcast_room(room_id, {"type": "presence", "event": "join", "count": self.count_room(room_id)})
+
+    async def disconnect_room(self, room_id: str, websocket: WebSocket):
+        async with self.lock:
+            conns = self.room_channels.get(room_id)
+            if conns and websocket in conns:
+                conns.remove(websocket)
+                if not conns:
+                    self.room_channels.pop(room_id, None)
+        await self.broadcast_room(room_id, {"type": "presence", "event": "leave", "count": self.count_room(room_id)})
+
+    async def broadcast_room(self, room_id: str, message: dict):
+        conns = list(self.room_channels.get(room_id, set()))
+        dead = []
+        for ws in conns:
+            try:
+                await ws.send_text(json.dumps(message))
+            except Exception:
+                dead.append(ws)
+        if dead:
+            async with self.lock:
+                for ws in dead:
+                    self.room_channels.get(room_id, set()).discard(ws)
+
+    def count_room(self, room_id: str) -> int:
+        return len(self.room_channels.get(room_id, set()))
+
+    async def broadcast_global(self, message: dict):
+        # Placeholder for future: currently not used by frontend
+        conns = list(self.global_channels)
+        dead = []
+        for ws in conns:
+            try:
+                await ws.send_text(json.dumps(message))
+            except Exception:
+                dead.append(ws)
+        if dead:
+            async with self.lock:
+                for ws in dead:
+                    self.global_channels.discard(ws)
+
+hub = RealtimeHub()
+
+@app.websocket("/ws/chat")
+async def ws_chat(websocket: WebSocket, category: Optional[str] = None):
+    cat = category or "General"
+    await hub.connect_chat(cat, websocket)
+    try:
+        while True:
+            msg = await websocket.receive_text()
+            try:
+                data = json.loads(msg)
+            except Exception:
+                continue
+            if isinstance(data, dict):
+                t = data.get("type")
+                if t == "typing":
+                    author = data.get("author") or "Anon"
+                    await hub.broadcast_chat(cat, {"type": "typing", "author": author})
+                elif t == "ping":
+                    await websocket.send_text(json.dumps({"type": "pong"}))
+    except WebSocketDisconnect:
+        await hub.disconnect_chat(cat, websocket)
+
+@app.websocket("/ws/rooms/{room_id}")
+async def ws_room(websocket: WebSocket, room_id: str):
+    await hub.connect_room(room_id, websocket)
+    try:
+        while True:
+            msg = await websocket.receive_text()
+            try:
+                data = json.loads(msg)
+            except Exception:
+                continue
+            if isinstance(data, dict):
+                t = data.get("type")
+                if t == "typing":
+                    author = data.get("author") or "Anon"
+                    await hub.broadcast_room(room_id, {"type": "typing", "author": author})
+                elif t == "ping":
+                    await websocket.send_text(json.dumps({"type": "pong"}))
+    except WebSocketDisconnect:
+        await hub.disconnect_room(room_id, websocket)
 
 
 if __name__ == "__main__":
