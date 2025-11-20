@@ -1,10 +1,12 @@
 import os
 from typing import List, Optional
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
-from database import create_document, get_documents, db
-from schemas import Artwork, Practice, ChatMessage, Booking, ContactMessage, Performance
+from database import create_document, get_documents, db, update_document_push, get_document_by_id
+from schemas import Artwork, Practice, ChatMessage, Booking, ContactMessage, Performance, Room, RoomMessage
 
 app = FastAPI()
 
@@ -15,6 +17,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Serve files saved under /tmp via /static
+app.mount("/static", StaticFiles(directory="/tmp"), name="static")
 
 @app.get("/")
 def read_root():
@@ -256,6 +261,98 @@ def create_performance(payload: PerformanceCreate):
     try:
         inserted_id = create_document("performance", payload)
         return {"id": inserted_id, "message": "Performance submitted"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ---------------------- Live Rooms API ----------------------
+class RoomCreate(Room):
+    pass
+
+@app.post("/rooms", status_code=201)
+def create_room(payload: RoomCreate):
+    try:
+        inserted_id = create_document("room", payload)
+        return {"id": inserted_id, "message": "Room created"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/rooms")
+def list_rooms(discipline: Optional[str] = None, status: Optional[str] = None, limit: Optional[int] = 50):
+    try:
+        filt = {}
+        if discipline:
+            filt["discipline"] = discipline
+        if status:
+            filt["status"] = status
+        items = get_documents("room", filt, limit)
+        for it in items:
+            _id = it.get("_id")
+            if _id is not None:
+                it["_id"] = str(_id)
+        return {"items": items}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+class RoomMessageCreate(RoomMessage):
+    pass
+
+@app.post("/rooms/{room_id}/messages", status_code=201)
+def post_room_message(room_id: str, payload: RoomMessageCreate):
+    try:
+        # Ensure room exists
+        room = get_document_by_id("room", room_id)
+        if not room:
+            raise HTTPException(status_code=404, detail="Room not found")
+        # Save message (include room_id from path for consistency)
+        data = payload.model_dump()
+        data["room_id"] = room_id
+        inserted_id = create_document("roommessage", data)
+        return {"id": inserted_id, "message": "Message posted"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/rooms/{room_id}/messages")
+def list_room_messages(room_id: str, limit: Optional[int] = 100):
+    try:
+        items = get_documents("roommessage", {"room_id": room_id}, limit)
+        for it in items:
+            _id = it.get("_id")
+            if _id is not None:
+                it["_id"] = str(_id)
+        return {"items": items}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/rooms/{room_id}/pin", status_code=200)
+def pin_media(room_id: str, url: str = Form(...)):
+    try:
+        updated = update_document_push("room", room_id, "pinned_media", url)
+        if not updated:
+            raise HTTPException(status_code=404, detail="Room not found or not updated")
+        return {"message": "Media pinned"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ---------------------- Lightweight Upload Endpoint for Recordings ----------------------
+@app.post("/upload", status_code=201)
+async def upload_file(file: UploadFile = File(...)):
+    """Accept a small file upload and return a pseudo-URL.
+    In this ephemeral environment, we'll store to a temp folder and expose a local path as URL.
+    """
+    try:
+        import aiofiles
+        upload_dir = "/tmp/uploads"
+        os.makedirs(upload_dir, exist_ok=True)
+        dest_path = os.path.join(upload_dir, file.filename)
+        async with aiofiles.open(dest_path, 'wb') as out_file:
+            content = await file.read()
+            await out_file.write(content)
+        # Return a pseudo URL; frontend can treat it as downloadable link
+        return {"url": f"/static/uploads/{file.filename}"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -9,8 +9,9 @@ from pymongo import MongoClient
 from datetime import datetime, timezone
 import os
 from dotenv import load_dotenv
-from typing import Union
+from typing import Union, Any, Optional
 from pydantic import BaseModel
+from bson.objectid import ObjectId
 
 # Load environment variables from .env file
 load_dotenv()
@@ -53,3 +54,26 @@ def get_documents(collection_name: str, filter_dict: dict = None, limit: int = N
         cursor = cursor.limit(limit)
     
     return list(cursor)
+
+
+def _to_object_id(id_str: str) -> ObjectId:
+    try:
+        return ObjectId(id_str)
+    except Exception:
+        raise ValueError("Invalid document id")
+
+
+def update_document_push(collection_name: str, doc_id: str, field: str, value: Any) -> bool:
+    """Push a value to an array field and update timestamp"""
+    if db is None:
+        raise Exception("Database not available. Check DATABASE_URL and DATABASE_NAME environment variables.")
+    oid = _to_object_id(doc_id)
+    res = db[collection_name].update_one({"_id": oid}, {"$push": {field: value}, "$set": {"updated_at": datetime.now(timezone.utc)}})
+    return res.modified_count > 0
+
+
+def get_document_by_id(collection_name: str, doc_id: str) -> Optional[dict]:
+    if db is None:
+        raise Exception("Database not available. Check DATABASE_URL and DATABASE_NAME environment variables.")
+    oid = _to_object_id(doc_id)
+    return db[collection_name].find_one({"_id": oid})

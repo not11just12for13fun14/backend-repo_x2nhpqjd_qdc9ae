@@ -116,3 +116,24 @@ class Performance(BaseModel):
     recording_urls: List[HttpUrl] = Field(default_factory=list, description="Links to recorded media")
     description: Optional[str] = Field(None, description="Overview of the performance")
     tags: Optional[List[str]] = Field(default_factory=list, description="Keywords for discovery")
+
+# Live Rooms for sessions
+class Room(BaseModel):
+    """
+    Live session rooms
+    Collection name: "room"
+    """
+    title: str = Field(..., description="Room title")
+    discipline: Optional[str] = Field(None, description="Discipline or theme")
+    pinned_media: List[HttpUrl] = Field(default_factory=list, description="Pinned media URLs for the session")
+    status: Optional[str] = Field("open", description="Room status: open/closed")
+
+class RoomMessage(BaseModel):
+    """
+    Messages posted inside a room
+    Collection name: "roommessage"
+    """
+    room_id: str = Field(..., description="Target room id")
+    author: str = Field(..., description="Sender display name")
+    text: Optional[str] = Field(None, description="Message text")
+    media_urls: List[HttpUrl] = Field(default_factory=list, description="Attached media URLs")
