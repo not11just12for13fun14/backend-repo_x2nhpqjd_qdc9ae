@@ -2,7 +2,7 @@ import os
 import json
 import asyncio
 from typing import List, Optional, Dict, Set
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, WebSocket, WebSocketDisconnect, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -22,6 +22,26 @@ app.add_middleware(
 
 # Serve files saved under /tmp via /static
 app.mount("/static", StaticFiles(directory="/tmp"), name="static")
+
+# ---------------------- Simple Role-Based Access Control ----------------------
+# Roles: viewer < member < moderator < admin
+# Moderation actions require role in {moderator, admin} and a valid admin token.
+ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "")
+
+async def get_role(x_role: Optional[str] = Header(default=None), x_admin_token: Optional[str] = Header(default=None)) -> str:
+    role = (x_role or "viewer").lower().strip()
+    if role in {"moderator", "admin"}:
+        if not ADMIN_TOKEN or x_admin_token != ADMIN_TOKEN:
+            # Downgrade to viewer if token invalid
+            return "viewer"
+        return role
+    if role in {"viewer", "member"}:
+        return role
+    return "viewer"
+
+async def require_moderator(role: str = Depends(get_role)):
+    if role not in {"moderator", "admin"}:
+        raise HTTPException(status_code=403, detail="Moderator role required")
 
 @app.get("/")
 def read_root():
@@ -205,7 +225,7 @@ async def create_chat(payload: ChatCreate):
 
 # Moderation endpoints for chat
 @app.post("/chat/{message_id}/flag")
-def flag_chat_message(message_id: str):
+def flag_chat_message(message_id: str, _: None = Depends(require_moderator)):
     try:
         ok = update_document_set("chatmessage", message_id, {"flagged": True})
         if not ok:
@@ -217,7 +237,7 @@ def flag_chat_message(message_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.delete("/chat/{message_id}")
-def delete_chat_message(message_id: str):
+def delete_chat_message(message_id: str, _: None = Depends(require_moderator)):
     try:
         ok = delete_document("chatmessage", message_id)
         if not ok:
@@ -380,7 +400,7 @@ async def pin_media(room_id: str, url: str = Form(...)):
 
 # Room moderation
 @app.post("/rooms/{room_id}/messages/{message_id}/flag")
-def flag_room_message(room_id: str, message_id: str):
+def flag_room_message(room_id: str, message_id: str, _: None = Depends(require_moderator)):
     try:
         ok = update_document_set("roommessage", message_id, {"flagged": True})
         if not ok:
@@ -392,7 +412,7 @@ def flag_room_message(room_id: str, message_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.delete("/rooms/{room_id}/messages/{message_id}")
-def delete_room_message(room_id: str, message_id: str):
+def delete_room_message(room_id: str, message_id: str, _: None = Depends(require_moderator)):
     try:
         ok = delete_document("roommessage", message_id)
         if not ok:
