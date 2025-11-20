@@ -74,9 +74,11 @@ class ChatMessage(BaseModel):
     Collection name: "chatmessage" -> "chatmessage" automatically
     """
     author: str = Field(..., description="Display name of the sender")
+    avatar: Optional[HttpUrl] = Field(None, description="Avatar image URL")
     text: Optional[str] = Field(None, description="Message text content")
     media_urls: List[HttpUrl] = Field(default_factory=list, description="Attached media URLs (images/videos/artworks)")
     category: Optional[str] = Field(None, description="Optional category or room name")
+    flagged: Optional[bool] = Field(False, description="Whether message is flagged")
 
 # Workshop booking schema
 class Booking(BaseModel):
@@ -135,5 +137,7 @@ class RoomMessage(BaseModel):
     """
     room_id: str = Field(..., description="Target room id")
     author: str = Field(..., description="Sender display name")
+    avatar: Optional[HttpUrl] = Field(None, description="Avatar image URL")
     text: Optional[str] = Field(None, description="Message text")
     media_urls: List[HttpUrl] = Field(default_factory=list, description="Attached media URLs")
+    flagged: Optional[bool] = Field(False, description="Whether message is flagged")

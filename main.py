@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from database import create_document, get_documents, db, update_document_push, get_document_by_id
+from database import create_document, get_documents, db, update_document_push, get_document_by_id, update_document_pull, update_document_set, delete_document
 from schemas import Artwork, Practice, ChatMessage, Booking, ContactMessage, Performance, Room, RoomMessage
 
 app = FastAPI()
@@ -203,6 +203,31 @@ async def create_chat(payload: ChatCreate):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# Moderation endpoints for chat
+@app.post("/chat/{message_id}/flag")
+def flag_chat_message(message_id: str):
+    try:
+        ok = update_document_set("chatmessage", message_id, {"flagged": True})
+        if not ok:
+            raise HTTPException(status_code=404, detail="Message not found")
+        return {"message": "Flagged"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/chat/{message_id}")
+def delete_chat_message(message_id: str):
+    try:
+        ok = delete_document("chatmessage", message_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="Message not found")
+        return {"message": "Deleted"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 # ---------------------- Workshop Bookings API ----------------------
 class BookingCreate(Booking):
     pass
@@ -348,6 +373,31 @@ async def pin_media(room_id: str, url: str = Form(...)):
         # Broadcast pin to room subscribers
         await hub.broadcast_room(room_id, {"type": "pin", "url": url})
         return {"message": "Media pinned"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Room moderation
+@app.post("/rooms/{room_id}/messages/{message_id}/flag")
+def flag_room_message(room_id: str, message_id: str):
+    try:
+        ok = update_document_set("roommessage", message_id, {"flagged": True})
+        if not ok:
+            raise HTTPException(status_code=404, detail="Message not found")
+        return {"message": "Flagged"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/rooms/{room_id}/messages/{message_id}")
+def delete_room_message(room_id: str, message_id: str):
+    try:
+        ok = delete_document("roommessage", message_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="Message not found")
+        return {"message": "Deleted"}
     except HTTPException:
         raise
     except Exception as e:

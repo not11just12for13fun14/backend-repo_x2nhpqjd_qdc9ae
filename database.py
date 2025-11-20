@@ -72,8 +72,36 @@ def update_document_push(collection_name: str, doc_id: str, field: str, value: A
     return res.modified_count > 0
 
 
+def update_document_pull(collection_name: str, doc_id: str, field: str, value: Any) -> bool:
+    """Pull a value from an array field and update timestamp"""
+    if db is None:
+        raise Exception("Database not available. Check DATABASE_URL and DATABASE_NAME environment variables.")
+    oid = _to_object_id(doc_id)
+    res = db[collection_name].update_one({"_id": oid}, {"$pull": {field: value}, "$set": {"updated_at": datetime.now(timezone.utc)}})
+    return res.modified_count > 0
+
+
+def update_document_set(collection_name: str, doc_id: str, updates: dict) -> bool:
+    """Set fields on a document and update timestamp"""
+    if db is None:
+        raise Exception("Database not available. Check DATABASE_URL and DATABASE_NAME environment variables.")
+    oid = _to_object_id(doc_id)
+    updates = updates.copy()
+    updates['updated_at'] = datetime.now(timezone.utc)
+    res = db[collection_name].update_one({"_id": oid}, {"$set": updates})
+    return res.modified_count > 0
+
+
 def get_document_by_id(collection_name: str, doc_id: str) -> Optional[dict]:
     if db is None:
         raise Exception("Database not available. Check DATABASE_URL and DATABASE_NAME environment variables.")
     oid = _to_object_id(doc_id)
     return db[collection_name].find_one({"_id": oid})
+
+
+def delete_document(collection_name: str, doc_id: str) -> bool:
+    if db is None:
+        raise Exception("Database not available. Check DATABASE_URL and DATABASE_NAME environment variables.")
+    oid = _to_object_id(doc_id)
+    res = db[collection_name].delete_one({"_id": oid})
+    return res.deleted_count > 0
