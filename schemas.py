@@ -50,3 +50,17 @@ class Artwork(BaseModel):
     description: Optional[str] = Field(None, description="Short description or concept")
     tags: Optional[List[str]] = Field(default_factory=list, description="Tags for filtering/search")
     year: Optional[int] = Field(None, ge=1000, le=3000, description="Year created")
+
+# Sustainable practice submission schema
+class Practice(BaseModel):
+    """
+    Sustainable practice submissions
+    Collection name: "practice"
+    """
+    title: str = Field(..., description="Name of the sustainable practice")
+    city: str = Field(..., description="City where the practice is implemented")
+    description: Optional[str] = Field(None, description="Details of the initiative")
+    category: Optional[str] = Field(None, description="Category (e.g., transport, energy, waste)")
+    tags: Optional[List[str]] = Field(default_factory=list, description="Keywords for discovery")
+    impact_score: Optional[int] = Field(None, ge=1, le=5, description="Estimated impact (1-5)")
+    source_url: Optional[HttpUrl] = Field(None, description="Reference or official link")

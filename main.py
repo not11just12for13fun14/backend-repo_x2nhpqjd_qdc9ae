@@ -2,10 +2,9 @@ import os
 from typing import List, Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 
 from database import create_document, get_documents, db
-from schemas import Artwork
+from schemas import Artwork, Practice
 
 app = FastAPI()
 
@@ -127,6 +126,34 @@ def create_artwork(payload: ArtworkCreate):
     try:
         inserted_id = create_document("artwork", payload)
         return {"id": inserted_id, "message": "Artwork created"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ---------------------- Sustainable Practices API ----------------------
+class PracticeCreate(Practice):
+    pass
+
+@app.get("/practices")
+def list_practices(city: Optional[str] = None, limit: Optional[int] = 20):
+    """List sustainable practices, optionally filtered by city."""
+    try:
+        filt = {"city": city} if city else {}
+        items = get_documents("practice", filt, limit)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    for it in items:
+        _id = it.get("_id")
+        if _id is not None:
+            it["_id"] = str(_id)
+
+    return {"items": items}
+
+@app.post("/practices", status_code=201)
+def create_practice(payload: PracticeCreate):
+    try:
+        inserted_id = create_document("practice", payload)
+        return {"id": inserted_id, "message": "Practice submitted"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
