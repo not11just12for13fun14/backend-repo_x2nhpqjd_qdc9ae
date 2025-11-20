@@ -100,3 +100,19 @@ class ContactMessage(BaseModel):
     email: str = Field(..., description="Sender email")
     subject: Optional[str] = Field(None, description="Subject line")
     message: str = Field(..., description="Message body")
+
+# Multidisciplinary live performance schema
+class Performance(BaseModel):
+    """
+    Multidisciplinary art performance submissions
+    Collection name: "performance"
+    """
+    title: str = Field(..., description="Performance title")
+    artist: str = Field(..., description="Lead artist or group")
+    discipline: Optional[str] = Field(None, description="Discipline or category (e.g., Dance, Music, Theater)")
+    city: Optional[str] = Field(None, description="City of the performance")
+    scheduled_at: Optional[str] = Field(None, description="Scheduled date/time (ISO string or free text)")
+    live_url: Optional[HttpUrl] = Field(None, description="Live stream URL (YouTube, Twitch, etc.)")
+    recording_urls: List[HttpUrl] = Field(default_factory=list, description="Links to recorded media")
+    description: Optional[str] = Field(None, description="Overview of the performance")
+    tags: Optional[List[str]] = Field(default_factory=list, description="Keywords for discovery")

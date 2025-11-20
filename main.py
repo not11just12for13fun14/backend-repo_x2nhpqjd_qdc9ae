@@ -4,7 +4,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from database import create_document, get_documents, db
-from schemas import Artwork, Practice, ChatMessage, Booking, ContactMessage
+from schemas import Artwork, Practice, ChatMessage, Booking, ContactMessage, Performance
 
 app = FastAPI()
 
@@ -224,6 +224,38 @@ def create_contact(payload: ContactCreate):
     try:
         inserted_id = create_document("contactmessage", payload)
         return {"id": inserted_id, "message": "Message received"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ---------------------- Performances API ----------------------
+class PerformanceCreate(Performance):
+    pass
+
+@app.get("/performances")
+def list_performances(city: Optional[str] = None, discipline: Optional[str] = None, limit: Optional[int] = 50):
+    """List live or recorded multidisciplinary performances, with optional filters."""
+    try:
+        filt = {}
+        if city:
+            filt["city"] = city
+        if discipline:
+            filt["discipline"] = discipline
+        items = get_documents("performance", filt, limit)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    for it in items:
+        _id = it.get("_id")
+        if _id is not None:
+            it["_id"] = str(_id)
+
+    return {"items": items}
+
+@app.post("/performances", status_code=201)
+def create_performance(payload: PerformanceCreate):
+    try:
+        inserted_id = create_document("performance", payload)
+        return {"id": inserted_id, "message": "Performance submitted"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
