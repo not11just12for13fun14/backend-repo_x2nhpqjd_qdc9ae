@@ -1,6 +1,11 @@
 import os
-from fastapi import FastAPI
+from typing import List, Optional
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+
+from database import create_document, get_documents, db
+from schemas import Artwork
 
 app = FastAPI()
 
@@ -33,9 +38,6 @@ def test_database():
     }
     
     try:
-        # Try to import database module
-        from database import db
-        
         if db is not None:
             response["database"] = "✅ Available"
             response["database_url"] = "✅ Configured"
@@ -52,17 +54,81 @@ def test_database():
         else:
             response["database"] = "⚠️  Available but not initialized"
             
-    except ImportError:
-        response["database"] = "❌ Database module not found (run enable-database first)"
     except Exception as e:
         response["database"] = f"❌ Error: {str(e)[:50]}"
     
     # Check environment variables
-    import os
     response["database_url"] = "✅ Set" if os.getenv("DATABASE_URL") else "❌ Not Set"
     response["database_name"] = "✅ Set" if os.getenv("DATABASE_NAME") else "❌ Not Set"
     
     return response
+
+# ---------------------- Artworks API ----------------------
+class ArtworkCreate(Artwork):
+    pass
+
+@app.get("/artworks")
+def list_artworks(limit: Optional[int] = 9):
+    """List artworks. Seeds a few samples if collection is empty."""
+    try:
+        items = get_documents("artwork", {}, limit)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    if not items:
+        # Seed with a few sample digital artworks
+        samples: List[ArtworkCreate] = [
+            ArtworkCreate(
+                title="Glass Prism",
+                artist="Studio Nova",
+                image_url="https://images.unsplash.com/photo-1542751371-adc38448a05e?q=80&w=1600&auto=format&fit=crop",
+                description="Light refracting through glass surfaces.",
+                tags=["glass", "light", "abstract"],
+                year=2023,
+            ),
+            ArtworkCreate(
+                title="Neon Bloom",
+                artist="Ari Vega",
+                image_url="https://images.unsplash.com/photo-1535905748047-14b0a5499d39?q=80&w=1600&auto=format&fit=crop",
+                description="Floral shapes in neon gradients.",
+                tags=["neon", "gradient", "flora"],
+                year=2022,
+            ),
+            ArtworkCreate(
+                title="Circuit Dreams",
+                artist="Kai Ito",
+                image_url="https://images.unsplash.com/photo-1518779578993-ec3579fee39f?q=80&w=1600&auto=format&fit=crop",
+                description="Microtextures and luminous paths.",
+                tags=["tech", "circuit", "futurism"],
+                year=2024,
+            ),
+        ]
+        for s in samples:
+            try:
+                create_document("artwork", s)
+            except Exception:
+                # Ignore if seeding fails due to env; return empty list
+                pass
+        try:
+            items = get_documents("artwork", {}, limit)
+        except Exception:
+            items = []
+
+    # Convert ObjectId to string if present
+    for it in items:
+        _id = it.get("_id")
+        if _id is not None:
+            it["_id"] = str(_id)
+
+    return {"items": items}
+
+@app.post("/artworks", status_code=201)
+def create_artwork(payload: ArtworkCreate):
+    try:
+        inserted_id = create_document("artwork", payload)
+        return {"id": inserted_id, "message": "Artwork created"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":
