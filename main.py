@@ -4,7 +4,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from database import create_document, get_documents, db
-from schemas import Artwork, Practice
+from schemas import Artwork, Practice, ChatMessage, Booking, ContactMessage
 
 app = FastAPI()
 
@@ -134,10 +134,14 @@ class PracticeCreate(Practice):
     pass
 
 @app.get("/practices")
-def list_practices(city: Optional[str] = None, limit: Optional[int] = 20):
-    """List sustainable practices, optionally filtered by city."""
+def list_practices(city: Optional[str] = None, category: Optional[str] = None, limit: Optional[int] = 20):
+    """List sustainable practices, optionally filtered by city and/or category."""
     try:
-        filt = {"city": city} if city else {}
+        filt = {}
+        if city:
+            filt["city"] = city
+        if category:
+            filt["category"] = category
         items = get_documents("practice", filt, limit)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -154,6 +158,72 @@ def create_practice(payload: PracticeCreate):
     try:
         inserted_id = create_document("practice", payload)
         return {"id": inserted_id, "message": "Practice submitted"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ---------------------- Community Chat API ----------------------
+class ChatCreate(ChatMessage):
+    pass
+
+@app.get("/chat")
+def list_chat(category: Optional[str] = None, limit: Optional[int] = 50):
+    """List chat messages, optionally filtered by category/room."""
+    try:
+        filt = {"category": category} if category else {}
+        items = get_documents("chatmessage", filt, limit)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    for it in items:
+        _id = it.get("_id")
+        if _id is not None:
+            it["_id"] = str(_id)
+
+    return {"items": items}
+
+@app.post("/chat", status_code=201)
+def create_chat(payload: ChatCreate):
+    try:
+        inserted_id = create_document("chatmessage", payload)
+        return {"id": inserted_id, "message": "Message posted"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ---------------------- Workshop Bookings API ----------------------
+class BookingCreate(Booking):
+    pass
+
+@app.post("/bookings", status_code=201)
+def create_booking(payload: BookingCreate):
+    try:
+        inserted_id = create_document("booking", payload)
+        return {"id": inserted_id, "message": "Booking submitted"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/bookings")
+def list_bookings(limit: Optional[int] = 50):
+    try:
+        items = get_documents("booking", {}, limit)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    for it in items:
+        _id = it.get("_id")
+        if _id is not None:
+            it["_id"] = str(_id)
+
+    return {"items": items}
+
+# ---------------------- Contact API ----------------------
+class ContactCreate(ContactMessage):
+    pass
+
+@app.post("/contact", status_code=201)
+def create_contact(payload: ContactCreate):
+    try:
+        inserted_id = create_document("contactmessage", payload)
+        return {"id": inserted_id, "message": "Message received"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

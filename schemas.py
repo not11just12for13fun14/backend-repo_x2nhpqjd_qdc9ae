@@ -64,3 +64,39 @@ class Practice(BaseModel):
     tags: Optional[List[str]] = Field(default_factory=list, description="Keywords for discovery")
     impact_score: Optional[int] = Field(None, ge=1, le=5, description="Estimated impact (1-5)")
     source_url: Optional[HttpUrl] = Field(None, description="Reference or official link")
+    latitude: Optional[float] = Field(None, ge=-90, le=90, description="Latitude for map view")
+    longitude: Optional[float] = Field(None, ge=-180, le=180, description="Longitude for map view")
+
+# Realtime chat-like message (stored in DB)
+class ChatMessage(BaseModel):
+    """
+    Community chat messages
+    Collection name: "chatmessage" -> "chatmessage" automatically
+    """
+    author: str = Field(..., description="Display name of the sender")
+    text: Optional[str] = Field(None, description="Message text content")
+    media_urls: List[HttpUrl] = Field(default_factory=list, description="Attached media URLs (images/videos/artworks)")
+    category: Optional[str] = Field(None, description="Optional category or room name")
+
+# Workshop booking schema
+class Booking(BaseModel):
+    """
+    Workshop booking requests
+    Collection name: "booking"
+    """
+    name: str = Field(..., description="Participant name")
+    email: str = Field(..., description="Contact email")
+    topic: Optional[str] = Field(None, description="Workshop topic or interest area")
+    preferred_date: Optional[str] = Field(None, description="Preferred date (ISO string or text)")
+    message: Optional[str] = Field(None, description="Additional notes")
+
+# Contact message schema
+class ContactMessage(BaseModel):
+    """
+    Contact page submissions
+    Collection name: "contactmessage"
+    """
+    name: str = Field(..., description="Sender name")
+    email: str = Field(..., description="Sender email")
+    subject: Optional[str] = Field(None, description="Subject line")
+    message: str = Field(..., description="Message body")
